@@ -1,0 +1,295 @@
+---
+title: "Final Project"
+author: "Achmad Azril Mutawazin / 123200058"
+date: "2022-11-27"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Packages
+```{r}
+library(pacman)
+pacman::p_load(twitteR, wordcloud, tm, tidyr, tidytext, syuzhet, ngram, NLP, RColorBrewer, RTextTools, e1071, caret, knitr)
+library(shiny)
+library(here)
+library(vroom)
+library(dplyr)
+library(ggplot2)
+library(DT)
+library(syuzhet)
+library(textcat)
+library(tm)
+library(tidyverse)
+library(SnowballC)
+library(wordcloud)
+library(shinydashboard)
+```
+
+## Read data
+```{r}
+#Taking Data From CSV
+text_df<-vroom(here("Chainsaw Man - Main Trailer ／『チェンソーマン』本予告 - YouTube.csv"))
+#convert all data to character
+review <-as.character(text_df$Range)
+```
+
+## Data Cleaning
+```{r}
+#Take Data With English
+datafilter<-text_df[textcat(text_df$Range) == "english",]
+filters <- datafilter %>% filter(!is.na(Range))
+allreviews <- filters$Range
+
+#lowercasing all words
+allreviews <- tolower(allreviews)
+
+#Remove mentions, urls, emojis, numbers, punctuations, etc.
+allreviews <- gsub("@\\w+", "", allreviews)
+allreviews <- gsub("https?://.+", "", allreviews)
+allreviews <- gsub("\\d+\\w*\\d*", "", allreviews)
+allreviews <- gsub("#\\w+", "", allreviews)
+allreviews <- gsub("[^\x01-\x7F]", "", allreviews)
+allreviews <- gsub("[[:punct:]]", " ", allreviews)
+
+#Remove spaces and newlines
+allreviews <- gsub("\n", " ", allreviews)
+allreviews <- gsub("^\\s+", "", allreviews)
+allreviews <- gsub("\\s+$", "", allreviews)
+allreviews <- gsub("[ |\t]+", " ", allreviews)
+
+#Put the data to a new column
+tidy_data <- allreviews 
+
+##Change Data to Tibble
+tibble<- as_tibble(tidy_data)
+```
+
+## Sentiment Analysis with NRC Lexicon Method using syuzhet library
+```{r}
+#convert all value to character
+reviews <-as.character(tibble$value)
+
+#getting sentiment value from the dataframe
+s<-get_nrc_sentiment(reviews)
+#merging column into new data to see each of the comment sentiment value
+review_sentiment<-cbind(tibble$value,s)
+```
+
+## Data labeling from new data
+```{r}
+#deleting emotion column and only getting sentiment values
+selection<-review_sentiment%>%select(-(anger:trust))
+
+#creating new column contain data label and neutral
+selection<-selection%>%add_column(emotion="x")
+
+#fill neutral coloumn and extract the values only data into selection2
+selection2<-selection%>%select(negative,positive)
+
+#labelling each data with (positive > negative = "positive", negative > positive = "negative", else = "neutral")
+selection$emotion<-ifelse(selection$positive>selection$negative,"positive","negative")
+
+#creating label dataframe
+label<-selection[1:2]
+#labelling each data with neutral equal to negative
+label$score<-ifelse(selection$emotion=="positive",1,0)
+#binding column into label dataframe
+label<-cbind(selection$`tibble$value`,label$score)
+#convert into dataframe
+label<-as.data.frame(label)
+
+barplot(colSums(selection2),col=rainbow(3),ylab='count',main='sentimen analisis trailer csm')
+```
+
+## Applying Naive Bayes
+```{r}
+#dependent variable
+kable(table(label$V2),col.names = c("sentiment","frequency"))
+
+#independent variable
+corpus<-Corpus(VectorSource(label$V1))
+
+#word frequency
+#convert to tdm
+uniqwords=as.matrix(TermDocumentMatrix(corpus))
+#count frequency
+wordfreq=sort(rowSums(uniqwords),decreasing = TRUE)
+#word frequency df
+WCinput=data.frame(word=names(wordfreq),freq=wordfreq)
+```
+
+```{r}
+#convert dependent to factor type
+label$V2=as.factor(label$V2)
+#create corpus
+corpus=Corpus(VectorSource(label$V1))
+#create document
+dtm=DocumentTermMatrix(corpus)
+#partion the data 
+Index=sample(1:nrow(tibble),size = round(0.7*nrow(tibble)),replace = FALSE)
+
+text.train=label[Index,]
+text.test=label[-Index,]
+#doc
+doc.train=dtm[Index,]
+doc.test=dtm[-Index,]
+#corpus
+corpus.train=corpus[Index]
+corpus.test=corpus[-Index]
+```
+
+```{r}
+#generate list of words which occur 2 times or more
+fivefreq=findFreqTerms(doc.train,2)
+#restrict the document to only those words which occur two times or more
+doc.train.nb=DocumentTermMatrix(corpus.train,control = list(dictionary=fivefreq))
+
+doc.test.nb=DocumentTermMatrix(corpus.test,control = list(dictionary=fivefreq))
+#convert to no or yes
+convert_counts = function(x){
+  y=ifelse(x>0,1,0)
+  y=factor(y,levels = c(0,1),labels = c("No","Yes"))
+  y
+}
+#creating training and validation features
+trainNB=apply(doc.train.nb,2, convert_counts)
+
+testNB=apply(doc.test.nb,2, convert_counts)
+```
+
+```{r}
+#run naive bayes
+classifier=naiveBayes(trainNB,factor(text.train$V2),laplace = 1)
+classifier2=naiveBayes(trainNB,factor(text.train$V2),laplace = .5)
+classifier3=naiveBayes(trainNB,factor(text.train$V2),laplace = .25)
+```
+
+```{r}
+#predict naive bayes
+pred = predict(classifier,newdata = testNB)
+library(caret)
+#confusion matrix
+confusionMatrix(pred,text.test$V2)
+```
+## comparing laplace
+```{r}
+#predict naive bayes
+pred2 = predict(classifier2,newdata = testNB)
+library(caret)
+#confusion matrix
+confusionMatrix(pred2,text.test$V2)
+```
+```{r}
+#predict naive bayes
+pred3 = predict(classifier3,newdata = testNB)
+library(caret)
+#confusion matrix
+confusionMatrix(pred3,text.test$V2)
+```
+
+## Creating wordcloud for each data label
+```{r}
+#function creation
+getWordCloud <- function(sentiment_dataframe, YoutubeCleaned, Emotion,maxWord){
+  #identifying each of the emotion label
+ emos = levels(factor(sentiment_dataframe$emotion))
+  #identifying much the emotion label
+  n_emos = length(emos)
+  #emptying each of the data label
+  emo.docs = rep("",n_emos)
+  
+  #placing the comment for each label in each data frame
+  for(i in 1:n_emos){
+    emo.docs[i] = paste(YoutubeCleaned[Emotion == emos[i]], collapse="")
+  }
+  #normalize and tokenize dataframe for searching for terms occurences
+  corpus <- Corpus(VectorSource(emo.docs))
+  #Constructs or coerces to a term-document matrix or a document-term matrix
+  tdm = TermDocumentMatrix(corpus)
+  tdm = as.matrix(tdm)
+  #fill the column name in the matrix
+  colnames(tdm)= emos
+  #creating comparison cloud
+  suppressWarnings(comparison.cloud(tdm,colors = c("red","gray"),max.words = maxWord ,random.order = FALSE, title.size = 1.5,relative_scaling=(default='auto')))}
+
+#getting emotion only dataset
+reviewemot = selection[,4]
+#initialize the function
+wordcloud <- getWordCloud(selection,tibble$value, reviewemot,50)
+```
+
+# Shiny
+```{r}
+#creating button dataframe
+sentiment_chainsaw <- unique(selection[["emotion"]])
+sentiment_chainsaw_bar <- c( "positive", "negative", "all")
+```
+# UI
+```{r}
+ui<-dashboardPage(title = "Chainsawman Trailer Sentiment Analysis",dashboardHeader(
+    title = "Chainsawman Trailer Sentiment Analysis"),
+    dashboardSidebar(
+    sidebarMenu(
+      menuItem("Table", tabName = "Table"),
+      menuItem("Word Cloud", tabName = "Word-Cloud"),
+      menuItem("Bar Plot", tabName = "Bar-Plot"))),
+  dashboardBody(tabItems(tabItem(tabName = "Table",
+        fluidRow(box(selectInput(inputId = "emotion",
+                  label =  "Sentiment",
+                  choices = sentiment_chainsaw,
+                  multiple = TRUE,
+                  selected = sentiment_chainsaw[0]),width = 10),
+        box(dataTableOutput("mytable"),width = 10))),
+      tabItem(tabName = "Bar-Plot",fluidRow(box(
+            tags$p("Barplot each Emotion :"),
+            selectInput(inputId = "baremotion",
+                  label =  "barSentiment",
+                  choices = sentiment_chainsaw_bar,
+                  selected = sentiment_chainsaw_bar[0])),
+          box(plotOutput("bar")))),
+      tabItem(tabName = "Word-Cloud",fluidRow(box(
+            tags$p("Num Of Text :"),sliderInput("max","Maximum Number of Words:",
+                  min = 1,  max = 100,  value = 20),
+            hr(),
+            tags$p("| Positive = Gray |----------| Negative = Red |"),),
+          box(plotOutput("plot",height = 600),)))),))
+```
+#Server
+```{r}
+server <- function(input,output,session){
+  
+  data_table <- reactive({selection %>% filter(emotion %in% input$emotion)})
+  
+  output$mytable = DT::renderDataTable({DT::datatable(data_table())})
+  
+  max_word<- reactive({getWordCloud(selection,tibble$value, reviewemot, input$max)})
+
+  output$plot <- renderPlot({plotOutput(max_word())})
+  
+  data_barplot <- reactive({
+    a = 1
+    if(input$baremotion == "positive"){
+      x = 2
+      a = 1
+      color = "green"
+    }else if(input$baremotion == "negative"){
+      x = 1
+      a = 1
+      color ="red"
+    }else{
+      a = 0
+    }
+    if(a == 0){
+      barplot(colSums(selection2),col=rainbow(3),ylab='Word',main='sentimen analisis trailer csm')
+      a = 1;}else{barplot(colSums(selection2 %>% select(c(x))),col=color,ylab='Word',main='sentimen analisis trailer csm') }})
+  
+  output$bar = renderPlot({plotOutput(data_barplot())})}
+```
+#Run
+```{r}
+shinyApp(ui = ui, server = server, options = list(height = "500px"))
+```
+

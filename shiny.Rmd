@@ -1,0 +1,124 @@
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  message = FALSE, 
+  warning = FALSE,
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+##Library
+```{r}
+library(shiny)
+library(here)
+library(vroom)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(DT)
+```
+
+##Read Data
+```{r}
+text_df<-vroom(here("Chainsaw Man - Main Trailer ／『チェンソーマン』本予告 - YouTube.csv"))
+review <-as.character(text_df$Range)
+sentiment_chainsaw <- unique(selection[["emotion"]])
+sentiment_chainsaw_bar <- c("neutral", "positive", "negative", "all")
+
+```
+
+##UI
+```{r}
+ui <- fluidPage(
+  title = "Chainsawman Trailer",
+  headerPanel("Chainsawman Trailer Comment Sentiment Analysis"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput(inputId = "emotion",
+                  label =  "Sentiment",
+                  choices = sentiment_chainsaw,
+                  multiple = TRUE,
+                  selected = sentiment_chainsaw[0]),
+      hr(),
+      tags$p("Barplot each Emotion :"),
+      selectInput(inputId = "baremotion",
+                  label =  "barSentiment",
+                  choices = sentiment_chainsaw_bar,
+                  selected = sentiment_chainsaw_bar[0]),
+    ),
+    mainPanel(
+      dataTableOutput("mytable"),
+      plotOutput("bar")
+    )
+  ),
+  sidebarLayout(
+    sidebarPanel(
+      sliderInput("max",
+                  "Maximum Number of Words:",
+                  min = 1,  max = 100,  value = 20),
+    ),
+    mainPanel(
+      plotOutput("plot"),
+      tags$p("| Positive = Green  |----------| Neutral = Gray |----------| Negative = Red |")
+    )
+  ),
+)
+
+
+```
+
+##Server
+```{r}
+server <- function(input,output,session){
+  
+  data_table <- reactive({
+    selection %>% filter(emotion %in% input$emotion)
+  })
+  
+  output$mytable = DT::renderDataTable({
+    DT::datatable(data_table())
+  })
+  
+  max_word<- reactive({
+    getWordCloud(selection,tibble$value, reviewemot, input$max)
+  })
+
+  output$plot <- renderPlot({
+    plotOutput(max_word())
+  })
+  
+  data_barplot <- reactive({
+    a = 1
+    if(input$baremotion == "positive"){
+      x = 2
+      a = 1
+    }else if(input$baremotion == "negative"){
+      x = 1
+      a = 1
+    }else if(input$baremotion == "neutral"){
+      x = 3
+      a = 1
+    }else{
+      a = 0
+    }
+    if(a == 0){
+      barplot(colSums(selecition2),col=rainbow(3),ylab='Word',main='sentimen analisis trailer csm')
+      a = 1;
+    }else{
+     barplot(colSums(selecition2 %>% select(c(x))),col=rainbow(3),ylab='Word',main='sentimen analisis trailer csm') 
+    }
+  })
+  
+  output$bar = renderPlot({
+    plotOutput(data_barplot())
+  })
+  
+}
+```
+
+##Run
+```{r}
+shinyApp(ui = ui, server = server, options = list(height = "500px"))
+```
+

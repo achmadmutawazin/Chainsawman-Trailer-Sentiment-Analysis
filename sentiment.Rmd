@@ -1,0 +1,113 @@
+---
+title: "tes"
+author: "Achmad Azril Mutawazin / 123200058"
+date: "2022-11-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(here)
+library(vroom)
+library(syuzhet)
+library(textcat)
+library(tm)
+library(tidyverse)
+library(SnowballC)
+library(wordcloud)
+library(memoise)
+```
+
+
+```{r}
+##Taking Data From CSV
+text_df<-vroom(here("Chainsaw Man - Main Trailer ／『チェンソーマン』本予告 - YouTube.csv"))
+review <-as.character(text_df$Range)
+```
+
+
+
+```{r}
+##Take Data With English
+datafilter<-text_df[textcat(text_df$Range) == "english",]
+filters <- datafilter %>% filter(!is.na(Range))
+allreviews <- filters$Range
+
+```
+
+
+##Data Cleaning
+```{r}
+allreviews <- tolower(allreviews)
+
+# Remove mentions, urls, emojis, numbers, punctuations, etc.
+allreviews <- gsub("@\\w+", "", allreviews)
+allreviews <- gsub("https?://.+", "", allreviews)
+allreviews <- gsub("\\d+\\w*\\d*", "", allreviews)
+allreviews <- gsub("#\\w+", "", allreviews)
+allreviews <- gsub("[^\x01-\x7F]", "", allreviews)
+allreviews <- gsub("[[:punct:]]", " ", allreviews)
+
+# Remove spaces and newlines
+allreviews <- gsub("\n", " ", allreviews)
+allreviews <- gsub("^\\s+", "", allreviews)
+allreviews <- gsub("\\s+$", "", allreviews)
+allreviews <- gsub("[ |\t]+", " ", allreviews)
+
+# Put the data to a new column
+tidy_data <- allreviews 
+```
+
+```{r}
+##Change Data to Tibble
+tibble<- as_tibble(tidy_data)
+
+reviews <-as.character(tibble$value)
+s<-get_nrc_sentiment(reviews)
+review_sentiment<-cbind(tibble$value,s)
+barplot(colSums(s),col=rainbow(10),ylab='count',main='sentimen analisis trailer csm')
+```
+
+```{r}
+selection<-review_sentiment%>%select(-(anger:trust))
+selection<-selection%>%add_column(neutral=0) 
+selection<-selection%>%add_column(emotion="x")
+
+selection$neutral<-ifelse(selection$positive==selection$negative,1,0)
+selecition2<-selection%>%select(negative,positive,neutral)
+
+selection$emotion<-ifelse(selection$positive>selection$negative,"positive",ifelse(selection$negative>selection$positive,"negative","neutral"))
+
+barplot(colSums(selecition2),col=rainbow(3),ylab='count',main='sentimen analisis trailer csm')
+```
+
+
+```{r}
+library(wordcloud)
+
+getWordCloud <- function(sentiment_dataframe, TweetsCleaned, Emotion,maxWord){
+ emos = levels(factor(sentiment_dataframe$emotion))
+  n_emos = length(emos)
+  emo.docs = rep("",n_emos)
+  
+  for(i in 1:n_emos){
+    emo.docs[i] = paste(TweetsCleaned[Emotion == emos[i]], collapse="")
+  }
+  corpus <- Corpus(VectorSource(emo.docs))
+  tdm = TermDocumentMatrix(corpus)
+  tdm = as.matrix(tdm)
+  colnames(tdm)= emos
+  
+  suppressWarnings(comparison.cloud(tdm,colors = c("red","gray","green"),max.words = maxWord ,random.order = FALSE, title.size = 1.5))
+  
+}
+reviewemot = selection[,5]
+wordcloud <- getWordCloud(selection,tibble$value, reviewemot,50)
+
+```
+
+
